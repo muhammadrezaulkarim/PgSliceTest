@@ -1,0 +1,110 @@
+------------------------------------------------------------------------
+
+--Create a primary table that needs to be partitioned.
+
+postgres=# create table part_test(id int PRIMARY KEY, info text, crt_time timestamp not null); 
+
+
+
+--Insert a large amount of test data to simulate a primary table that already contains data.
+
+postgres=# insert into part_test select id,md5(random()::text),clock_timestamp() + (id||' hour')::interval from generate_series(1,10000) t(id); 
+
+
+
+
+postgres=# \d+ part_test
+
+
+
+select count(*) from part_test;
+
+select * from part_test where crt_time = '2016-10-25 00:00:00'::timestamp;
+
+
+---------------------------------------------------------------------------------------------------------------------
+git clone https://github.com/ankane/pgslice.git
+
+docker build -t pgslice .
+
+alias pgslice="docker run --rm -e PGSLICE_URL pgslice"
+
+
+
+
+export PGSLICE_URL=postgres://user:pass123@10.0.75.2:5432/company
+
+SET PGSLICE_URL=postgres://user:pass123@10.0.75.2:5432/company
+
+
+
+
+
+docker run --rm -e PGSLICE_URL pgslice version
+
+docker run --rm -e PGSLICE_URL pgslice prep part_test crt_time day
+
+docker run --rm -e PGSLICE_URL pgslice add_partitions part_test --intermediate --past 3 --future 3
+
+docker run --rm -e PGSLICE_URL pgslice fill part_test
+
+docker run --rm -e PGSLICE_URL pgslice analyze part_test
+
+docker run --rm -e PGSLICE_URL pgslice swap part_test
+
+
+-------------------------------------------------------------------------------------
+Back up and drop older partitions each day, month, or year:
+
+     pg_dump -c -Fc -t <table>_201809 $PGSLICE_URL > <table>_201809.dump
+
+    psql -c "DROP TABLE <table>_201809" $PGSLICE_URL
+
+
+
+If you use Amazon S3 for backups, s3cmd is a nice tool:
+
+   s3cmd put <table>_201809.dump s3://<s3-bucket>/<table>_201809.dump
+
+---------------------------------------------------------------------------------------------------------------------
+
+Add paritions:
+docker run --rm -e PGSLICE_URL pgslice add_partitions part_test --future 3
+
+
+Insert record in the parent table:
+
+INSERT INTO public.part_test(id, info, crt_time) VALUES (90, md5(random()::text), '2020-02-22 23:01:43.917937');
+
+
+----------------------------------------------------------------------------------------------------------------------
+To add partitions, use:
+
+pgslice add_partitions <table> --future 3
+
+Add this as a cron job to create a new partition each day, month, or year:
+
+# day
+0 0 * * * pgslice add_partitions <table> --future 3 --url ...
+
+# month
+0 0 1 * * pgslice add_partitions <table> --future 3 --url ...
+
+# year
+0 0 1 1 * pgslice add_partitions <table> --future 3 --url ...
+
+
+Add a monitor to ensure partitions are being created:
+
+SELECT 1 FROM
+    pg_catalog.pg_class c
+INNER JOIN
+    pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE
+    c.relkind = 'r' AND
+    n.nspname = 'public' AND
+    c.relname = '<table>_' || to_char(NOW() + INTERVAL '3 days', 'YYYYMMDD')
+    -- for months, use to_char(NOW() + INTERVAL '3 months', 'YYYYMM')
+    -- for years, use to_char(NOW() + INTERVAL '3 years', 'YYYY')
+
+-----------------------------------------------------------------------------------------------------------------------
