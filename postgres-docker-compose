@@ -1,0 +1,29 @@
+version: '3.2'
+
+services:
+  postgres:
+    image: postgres:12
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    hostname: postgress
+    environment:
+      POSTGRES_DB: company
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass123
+    ports:
+      - '5432:5432'
+    networks:
+      - streaming
+    deploy:
+       placement:
+         constraints:
+           - 'node.role == manager'
+           - 'node.platform.os == linux'
+
+networks:
+   streaming:
+  
+volumes:
+   postgres-data:
+     external:
+       name: postgres-data
